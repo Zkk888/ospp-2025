@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<!-- 37. src/static/templates/terminal.html -->
+<!-- EulerMaker Docker Optimizer Web终端界面 -->
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="EulerMaker Docker Optimizer Web终端 - 容器{{ container_name }}">
+    <meta name="keywords" content="docker, container, terminal, web, xterm">
+    <meta name="author" content="张金荣">
+
+    <title>终端 - {{ container_name }} | EulerMaker Docker Optimizer</title>
+
+    <!-- 网站图标 -->
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="apple-touch-icon" href="/static/images/icon-192.png">
+
+    <!-- xterm.js CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.8.0/lib/addon-fit.css">
+
+    <!-- 自定义样式 -->
+    <link rel="stylesheet" href="/static/css/terminal.css">
+    <link rel="stylesheet" href="/static/css/common.css">
+
+    <!-- 预加载关键资源 -->
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js" as="script">
+    <link rel="preload" href="/static/js/xterm-integration.js" as="script">
+
+    <!-- 主题颜色 -->
+    <meta name="theme-color" content="#1e1e1e">
+    <meta name="msapplication-TileColor" content="#1e1e1e">
+
+    <!-- CSP 安全策略 -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' cdn.jsdelivr.net;
+        style-src 'self' 'unsafe-inline' cdn.jsdelivr.net;
+        connect-src 'self' ws: wss:;
+        img-src 'self' data:;
+        font-src 'self' data:;
+    ">
+</head>
+
+<body class="terminal-body">
+<!-- 页面顶部工具栏 -->
+<header class="terminal-header">
+    <div class="header-left">
+        <!-- Logo和品牌 -->
+        <div class="brand">
+            <img src="/static/images/logo.svg" alt="EulerMaker" class="brand-logo">
+            <span class="brand-text">EulerMaker</span>
+        </div>
+
+        <!-- 容器信息 -->
+        <div class="container-info">
+            <div class="container-badge">
+                <span class="badge-icon">🐳</span>
+                <span class="badge-text">{{ container_name }}</span>
+                <span class="badge-status" id="connection-status">连接中...</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="header-center">
+        <!-- 终端标题 -->
+        <h1 class="terminal-title">Web Terminal</h1>
+
+        <!-- 会话信息 -->
+        <div class="session-info">
+            <span class="session-id">会话ID: {{ session_id }}</span>
+            <span class="session-time" id="session-time">连接时间: --:--:--</span>
+        </div>
+    </div>
+
+    <div class="header-right">
+        <!-- 工具按钮 -->
+        <div class="toolbar">
+            <!-- 连接控制 -->
+            <button id="connect-btn" class="btn btn-primary" title="连接/断开">
+                <i class="icon-power"></i>
+                <span class="btn-text">连接</span>
+            </button>
+
+            <!-- 清屏 -->
+            <button id="clear-btn" class="btn btn-secondary" title="清屏 (Ctrl+L)">
+                <i class="icon-trash"></i>
+                <span class="btn-text">清屏</span>
+            </button>
+
+            <!-- 复制 -->
+            <button id="copy-btn" class="btn btn-secondary" title="复制选中内容">
+                <i class="icon-copy"></i>
+                <span class="btn-text">复制</span>
+            </button>
+
+            <!-- 粘贴 -->
+            <button id="paste-btn" class="btn btn-secondary" title="粘贴">
+                <i class="icon-paste"></i>
+                <span class="btn-text">粘贴</span>
+            </button>
+
+            <!-- 设置 -->
+            <button id="settings-btn" class="btn btn-secondary" title="终端设置">
+                <i class="icon-settings"></i>
+                <span class="btn-text">设置</span>
+            </button>
+
+            <!-- 全屏 -->
+            <button id="fullscreen-btn" class="btn btn-secondary" title="全屏模式 (F11)">
+                <i class="icon-fullscreen"></i>
+                <span class="btn-text">全屏</span>
+            </button>
+
+            <!-- 帮助 -->
+            <button id="help-btn" class="btn btn-secondary" title="快捷键帮助">
+                <i class="icon-help"></i>
+                <span class="btn-text">帮助</span>
+            </button>
+        </div>
+    </div>
+</header>
+
+<!-- 主要内容区域 -->
+<main class="terminal-main">
+    <!-- 终端容器 -->
+    <div class="terminal-container">
+        <!-- xterm.js终端实例将在这里创建 -->
+        <div id="terminal" class="xterm-container"></div>
+
+        <!-- 终端覆盖层（用于显示状态信息） -->
+        <div id="terminal-overlay" class="terminal-overlay hidden">
+            <div class="overlay-content">
+                <div class="overlay-icon">
+                    <i class="icon-loading spin"></i>
+                </div>
+                <div class="overlay-message">正在连接终端...</div>
+                <div class="overlay-details"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 状态栏 -->
+    <div class="status-bar">
+        <div class="status-left">
+            <div class="status-item" id="cursor-position">
+                <i class="icon-cursor"></i>
+                <span>行: 1, 列: 1</span>
+            </div>
+            <div class="status-item" id="terminal-size">
+                <i class="icon-resize"></i>
+                <span>{{ terminal_width }}x{{ terminal_height }}</span>
+            </div>
+            <div class="status-item" id="encoding-info">
+                <i class="icon-text"></i>
+                <span>UTF-8</span>
+            </div>
+        </div>
+
+        <div class="status-center">
+            <div class="status-item" id="command-info">
+                <span id="current-command"></span>
+            </div>
+        </div>
+
+        <div class="status-right">
+            <div class="status-item" id="network-info">
+                <i class="icon-network" id="network-icon"></i>
+                <span id="network-status">已连接</span>
+            </div>
+            <div class="status-item" id="performance-info" title="CPU使用率">
+                <i class="icon-cpu"></i>
+                <span id="cpu-usage">--</span>
+            </div>
+            <div class="status-item" id="memory-info" title="内存使用率">
+                <i class="icon-memory"></i>
+                <span id="memory-usage">--</span>
+            </div>
+        </div>
+    </div>
+</main>
+
+<!-- 侧边面板 -->
+<aside class="side-panel" id="side-panel">
+    <!-- 面板标签页 -->
+    <div class="panel-tabs">
+        <button class="tab-btn active" data-tab="history" title="命令历史">
+            <i class="icon-history"></i>
+            <span>历史</span>
+        </button>
+        <button class="tab-btn" data-tab="files" title="文件管理">
+            <i class="icon-folder"></i>
+            <span>文件</span>
+        </button>
+        <button class="tab-btn" data-tab="monitoring" title="系统监控">
+            <i class="icon-monitor"></i>
+            <span>监控</span>
+        </button>
+        <button class="tab-btn" data-tab="logs" title="系统日志">
+            <i class="icon-logs"></i>
+            <span>日志</span>
+        </button>
+    </div>
+
+    <!-- 面板内容 -->
+    <div class="panel-content">
+        <!-- 命令历史标签页 -->
+        <div class="tab-pane active" id="history-pane">
+            <div class="pane-header">
+                <h3>命令历史</h3>
+                <div class="pane-actions">
+                    <button class="btn-mini" id="clear-history-btn" title="清空历史">
+                        <i class="icon-trash"></i>
+                    </button>
+                    <button class="btn-mini" id="search-history-btn" title="搜索历史">
+                        <i class="icon-search"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="history-search hidden">
+                <input type="text" id="history-search-input" placeholder="搜索命令..." class="search-input">
+            </div>
+            <div class="history-list" id="history-list">
+                <div class="empty-state">
+                    <i class="icon-history-empty"></i>
+                    <p>暂无命令历史</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 文件管理标签页 -->
+        <div class="tab-pane" id="files-pane">
+            <div class="pane-header">
+                <h3>文件管理</h3>
+                <div class="pane-actions">
+                    <button class="btn-mini" id="refresh-files-btn" title="刷新文件列表">
+                        <i class="icon-refresh"></i>
+                    </button>
+                    <button class="btn-mini" id="upload-file-btn" title="上传文件">
+                        <i class="icon-upload"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="file-browser" id="file-browser">
+                <div class="current-path" id="current-path">/</div>
+                <div class="file-list" id="file-list">
+                    <div class="loading-state">
+                        <i class="icon-loading spin"></i>
+                        <p>正在加载文件列表...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 系统监控标签页 -->
+        <div class="tab-pane" id="monitoring-pane">
+            <div class="pane-header">
+                <h3>系统监控</h3>
+                <div class="pane-actions">
+                    <button class="btn-mini" id="pause-monitoring-btn" title="暂停/恢复监控">
+                        <i class="icon-pause"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="monitoring-charts" id="monitoring-charts">
+                <!-- CPU使用率图表 -->
+                <div class="chart-container">
+                    <h4>CPU 使用率</h4>
+                    <div class="chart" id="cpu-chart">
+                        <div class="chart-placeholder">CPU监控图表</div>
+                    </div>
+                </div>
+
+                <!-- 内存使用率图表 -->
+                <div class="chart-container">
+                    <h4>内存使用率</h4>
+                    <div class="chart" id="memory-chart">
+                        <div class="chart-placeholder">内存监控图表</div>
+                    </div>
+                </div>
+
+                <!-- 网络流量图表 -->
+                <div class="chart-container">
+                    <h4>网络流量</h4>
+                    <div class="chart" id="network-chart">
+                        <div class="chart-placeholder">网络监控图表</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 系统日志标签页 -->
+        <div class="tab-pane" id="logs-pane">
+            <div class="pane-header">
+                <h3>系统日志</h3>
+                <div class="pane-actions">
+                    <select class="log-level-select" id="log-level-select">
+                        <option value="all">所有级别</option>
+                        <option value="error">错误</option>
+                        <option value="warning">警告</option>
+                        <option value="info">信息</option>
+                        <option value="debug">调试</option>
+                    </select>
+                    <button class="btn-mini" id="clear-logs-btn" title="清空日志">
+                        <i class="icon-trash"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="log-viewer" id="log-viewer">
+                <div class="empty-state">
+                    <i class="icon-logs-empty"></i>
+                    <p>暂无系统日志</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</aside>
+
+<!-- 设置对话框 -->
+<div class="modal" id="settings-modal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-dialog">
+        <div class="modal-header">
+            <h3>终端设置</h3>
+            <button class="btn-close" id="settings-close-btn">
+                <i class="icon-close"></i>
+            </button>
+        </div>
+
+        <div class="modal-body">
+            <div class="settings-tabs">
+                <button class="settings-tab active" data-tab="appearance">外观</button>
+                <button class="settings-tab" data-tab="behavior">行为</button>
+                <button class="settings-tab" data-tab="keyboard">快捷键</button>
+                <button class="settings-tab" data-tab="advanced">高级</button>
+            </div>
+
+            <div class="settings-content">
+                <!-- 外观设置 -->
+                <div class="settings-pane active" id="appearance-settings">
+                    <div class="setting-group">
+                        <label class="setting-label">主题</label>
+                        <select class="setting-select" id="theme-select">
+                            <option value="dark">深色主题</option>
+                            <option value="light">浅色主题</option>
+                            <option value="custom">自定义主题</option>
+                        </select>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label">字体系列</label>
+                        <select class="setting-select" id="font-family-select">
+                            <option value="monospace">系统等宽字体</option>
+                            <option value="'Fira Code'">Fira Code</option>
+                            <option value="'Source Code Pro'">Source Code Pro</option>
+                            <option value="'JetBrains Mono'">JetBrains Mono</option>
+                            <option value="'Cascadia Code'">Cascadia Code</option>
+                        </select>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label">字体大小</label>
+                        <input type="range" class="setting-range" id="font-size-range"
+                               min="10" max="24" value="14" step="1">
+                        <span class="range-value">14px</span>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label">行高</label>
+                        <input type="range" class="setting-range" id="line-height-range"
+                               min="1.0" max="2.0" value="1.2" step="0.1">
+                        <span class="range-value">1.2</span>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label">透明度</label>
+                        <input type="range" class="setting-range" id="opacity-range"
+                               min="0.5" max="1.0" value="1.0" step="0.05">
+                        <span class="range-value">100%</span>
+                    </div>
+                </div>
+
+                <!-- 行为设置 -->
+                <div class="settings-pane" id="behavior-settings">
+                    <div class="setting-group">
+                        <label class="setting-checkbox">
+                            <input type="checkbox" id="cursor-blink-check" checked>
+                            <span class="checkmark"></span>
+                            光标闪烁
+                        </label>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-checkbox">
+                            <input type="checkbox" id="bell-sound-check">
+                            <span class="checkmark"></span>
+                            响铃声音
+                        </label>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-checkbox">
+                            <input type="checkbox" id="scroll-on-input-check" checked>
+                            <span class="checkmark"></span>
+                            输入时滚动
+                        </label>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-checkbox">
+                            <input type="checkbox" id="fast-scroll-check" checked>
+                            <span class="checkmark"></span>
+                            快速滚动
+                        </label>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label">滚动缓冲区大小</label>
+                        <input type="number" class="setting-input" id="scrollback-input"
+                               min="100" max="10000" value="1000" step="100">
+                    </div>
+                </div>
+
+                <!-- 快捷键设置 -->
+                <div class="settings-pane" id="keyboard-settings">
+                    <div class="keyboard-shortcuts">
+                        <div class="shortcut-item">
+                            <span class="shortcut-desc">复制</span>
+                            <span class="shortcut-key">Ctrl+Shift+C</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-desc">粘贴</span>
+                            <span class="shortcut-key">Ctrl+Shift+V</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-desc">清屏</span>
+                            <span class="shortcut-key">Ctrl+L</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-desc">全屏</span>
+                            <span class="shortcut-key">F11</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-desc">设置</span>
+                            <span class="shortcut-key">Ctrl+,</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-desc">帮助</span>
+                            <span class="shortcut-key">F1</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 高级设置 -->
+                <div class="settings-pane" id="advanced-settings">
+                    <div class="setting-group">
+                        <label class="setting-checkbox">
+                            <input type="checkbox" id="auto-reconnect-check" checked>
+                            <span class="checkmark"></span>
+                            自动重连
+                        </label>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label">重连间隔（秒）</label>
+                        <input type="number" class="setting-input" id="reconnect-interval-input"
+                               min="1" max="60" value="5">
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-checkbox">
+                            <input type="checkbox" id="debug-mode-check">
+                            <span class="checkmark"></span>
+                            调试模式
+                        </label>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="setting-checkbox">
+                            <input type="checkbox" id="session-recording-check" checked>
+                            <span class="checkmark"></span>
+                            会话录制
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button class="btn btn-secondary" id="settings-reset-btn">重置</button>
+            <button class="btn btn-primary" id="settings-save-btn">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 帮助对话框 -->
+<div class="modal" id="help-modal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-dialog">
+        <div class="modal-header">
+            <h3>快捷键帮助</h3>
+            <button class="btn-close" id="help-close-btn">
+                <i class="icon-close"></i>
+            </button>
+        </div>
+
+        <div class="modal-body">
+            <div class="help-content">
+                <div class="help-section">
+                    <h4>编辑操作</h4>
+                    <div class="help-list">
+                        <div class="help-item">
+                            <kbd>Ctrl+Shift+C</kbd>
+                            <span>复制选中内容</span>
+                        </div>
+                        <div class="help-item">
+                            <kbd>Ctrl+Shift+V</kbd>
+                            <span>粘贴内容</span>
+                        </div>
+                        <div class="help-item">
+                            <kbd>Ctrl+A</kbd>
+                            <span>全选当前行</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <h4>终端控制</h4>
+                    <div class="help-list">
+                        <div class="help-item">
+                            <kbd>Ctrl+L</kbd>
+                            <span>清屏</span>
+                        </div>
+                        <div class="help-item">
+                            <kbd>Ctrl+C</kbd>
+                            <span>中断当前命令</span>
+                        </div>
+                        <div class="help-item">
+                            <kbd>Ctrl+Z</kbd>
+                            <span>暂停当前进程</span>
+                        </div>
+                        <div class="help-item">
+                            <kbd>Ctrl+D</kbd>
+                            <span>退出终端</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <h4>命令历史</h4>
+                    <div class="help-list">
+                        <div class="help-item">
+                            <kbd>↑</kbd>
+                            <span>上一条命令</span>
+                        </div>
+                        <div class="help-item">
+                            <kbd>↓</kbd>
+                            <span>下一条命令</span>
+                        </div>
+                        <div class="help-item">
+                            <kbd>Ctrl+R</kbd>
+                            <span>搜索历史命令</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <h4>界面操作</h4>
+                    <div class="help-list">
+                        <div class="help-item">
+                            <kbd>F11</kbd>
+                            <span>全屏/退出全屏</span>
+                        </div>
+                        <div class="help-item">
+                            <kbd>Ctrl+,</kbd>
+                            <span>打开设置</span>
+                        </div>
+                        <div class="help-item">
+                            <kbd>F1</kbd>
+                            <span>显示帮助</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button class="btn btn-primary" id="help-ok-btn">确定</button>
+        </div>
+    </div>
+</div>
+
+<!-- 面板切换按钮 -->
+<button class="panel-toggle" id="panel-toggle" title="显示/隐藏侧边面板">
+    <i class="icon-panel"></i>
+</button>
+
+<!-- 加载中覆盖层 -->
+<div class="loading-overlay" id="loading-overlay">
+    <div class="loading-content">
+        <div class="loading-spinner">
+            <i class="icon-loading spin"></i>
+        </div>
+        <div class="loading-text">正在初始化终端...</div>
+    </div>
+</div>
+
+<!-- JavaScript库 -->
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.8.0/lib/addon-fit.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.9.0/lib/addon-web-links.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-search@0.13.0/lib/addon-search.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-unicode11@0.6.0/lib/addon-unicode11.js"></script>
+
+<!-- 自定义脚本 -->
+<script src="/static/js/xterm-integration.js"></script>
+
+<!-- 页面配置 -->
+<script type="application/json" id="terminal-config">
+    {
+        "sessionId": "{{ session_id }}",
+        "containerId": "{{ container_id }}",
+        "containerName": "{{ container_name }}",
+        "websocketUrl": "{{ websocket_url }}",
+        "terminalWidth": {{ terminal_width }},
+    "terminalHeight": {{ terminal_height }},
+    "apiEndpoint": "/api/v1/terminals",
+    "enableRecording": true,
+    "enableMonitoring": true,
+    "theme": "dark",
+    "fontSize": 14,
+    "fontFamily": "monospace"
+    }
+</script>
+</body>
+</html>
