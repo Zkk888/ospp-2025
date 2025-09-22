@@ -1,0 +1,539 @@
+# docker-compose.yml
+# EulerMaker Docker Optimizer Docker编排配置文件
+#
+# ******OSPP-2025-张金荣******
+#
+# 定义完整的应用栈，包括：
+# - 主应用服务
+# - Redis缓存服务
+# - PostgreSQL数据库
+# - 监控服务（Prometheus + Grafana）
+# - 日志聚合
+#
+# 使用方式：
+#   docker-compose up -d                    # 启动所有服务
+#   docker-compose up app                   # 只启动主应用
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d  # 生产环境
+#   docker-compose logs -f app              # 查看应用日志
+#   docker-compose down                     # 停止所有服务
+
+version: '3.8'
+
+# ========================================
+# 服务定义
+# ========================================
+services:
+  # ====================================
+  # 主应用服务
+  # ====================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+      args:
+        - BUILD_DATE=${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
+        - VCS_REF=${VCS_REF:-$(git rev-parse --short HEAD)}
+        - VERSION=${VERSION:-1.0.0}
+    image: eulermaker/docker-optimizer:latest
+    container_name: eulermaker-optimizer-app
+    hostname: optimizer-app
+    restart: unless-stopped
+
+    # 端口映射
+    ports:
+      - "8000:8000"   # Web API端口
+      - "9000:9000"   # RPC API端口
+
+    # 环境变量
+    environment:
+      # 应用配置
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - RPC_PORT=9000
+
+      # 数据库配置（如果使用）
+      - DATABASE_URL=postgresql+asyncpg://optimizer:optimizer123@postgres:5432/optimizer
+      - REDIS_URL=redis://redis:6379/0
+
+      # Docker配置
+      - DOCKER_HOST=unix:///var/run/docker.sock
+
+      # 安全配置
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
+      - ALLOWED_HOSTS=*
+
+      # 监控配置
+      - PROMETHEUS_ENABLED=true
+      - METRICS_PORT=8001
+
+      # 时区
+      - TZ=Asia/Shanghai
+
+    # 数据卷挂载
+    volumes:
+      # Docker socket（用于容器管理）
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+
+      # 应用数据
+      - app_logs:/app/logs
+      - app_data:/app/data
+      - app_builds:/app/builds
+      - app_uploads:/app/uploads
+      - app_cache:/app/cache
+
+      # 配置文件（可选）
+      - ./config:/app/config:ro
+
+      # SSL证书（如果使用HTTPS）
+      # - ./ssl:/app/ssl:ro
+
+    # 网络配置
+    networks:
+      - optimizer_network
+      - monitoring_network
+
+    # 依赖服务
+    depends_on:
+      - redis
+      # - postgres  # 如果使用PostgreSQL
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+    # 日志配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+    # 安全配置
+    security_opt:
+      - no-new-privileges:true
+
+    # 用户配置
+    user: "999:999"  # eulermaker用户
+
+  # ====================================
+  # Redis缓存服务
+  # ====================================
+  redis:
+    image: redis:7-alpine
+    container_name: eulermaker-optimizer-redis
+    hostname: redis
+    restart: unless-stopped
+
+    # 端口（仅内部访问）
+    expose:
+      - "6379"
+
+    # 环境变量
+    environment:
+      - TZ=Asia/Shanghai
+
+    # 数据卷
+    volumes:
+      - redis_data:/data
+      - ./config/redis.conf:/usr/local/etc/redis/redis.conf:ro
+
+    # 启动命令
+    command: redis-server /usr/local/etc/redis/redis.conf --appendonly yes
+
+    # 网络
+    networks:
+      - optimizer_network
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
+    # 安全配置
+    security_opt:
+      - no-new-privileges:true
+
+  # ====================================
+  # PostgreSQL数据库（可选）
+  # ====================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: eulermaker-optimizer-postgres
+    hostname: postgres
+    restart: unless-stopped
+
+    # 端口（仅内部访问）
+    expose:
+      - "5432"
+
+    # 环境变量
+    environment:
+      - POSTGRES_DB=optimizer
+      - POSTGRES_USER=optimizer
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-optimizer123}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+      - TZ=Asia/Shanghai
+
+    # 数据卷
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
+
+    # 网络
+    networks:
+      - optimizer_network
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U optimizer -d optimizer"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+        reservations:
+          memory: 256M
+          cpus: '0.15'
+
+    # 安全配置
+    security_opt:
+      - no-new-privileges:true
+
+    # 默认不启动（注释掉profiles以启用）
+    profiles:
+      - database
+
+  # ====================================
+  # Prometheus监控
+  # ====================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: eulermaker-optimizer-prometheus
+    hostname: prometheus
+    restart: unless-stopped
+
+    # 端口
+    ports:
+      - "9090:9090"
+
+    # 环境变量
+    environment:
+      - TZ=Asia/Shanghai
+
+    # 数据卷
+    volumes:
+      - prometheus_data:/prometheus
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+
+    # 启动命令
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+      - '--web.route-prefix=/'
+
+    # 网络
+    networks:
+      - monitoring_network
+      - optimizer_network
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+        reservations:
+          memory: 256M
+          cpus: '0.15'
+
+    # 默认不启动（注释掉profiles以启用）
+    profiles:
+      - monitoring
+
+  # ====================================
+  # Grafana仪表板
+  # ====================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: eulermaker-optimizer-grafana
+    hostname: grafana
+    restart: unless-stopped
+
+    # 端口
+    ports:
+      - "3000:3000"
+
+    # 环境变量
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_DOMAIN=localhost
+      - GF_SMTP_ENABLED=false
+      - TZ=Asia/Shanghai
+
+    # 数据卷
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+
+    # 网络
+    networks:
+      - monitoring_network
+
+    # 依赖
+    depends_on:
+      - prometheus
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
+    # 用户配置
+    user: "472:472"  # grafana用户
+
+    # 默认不启动（注释掉profiles以启用）
+    profiles:
+      - monitoring
+
+  # ====================================
+  # Nginx反向代理（可选）
+  # ====================================
+  nginx:
+    image: nginx:alpine
+    container_name: eulermaker-optimizer-nginx
+    hostname: nginx
+    restart: unless-stopped
+
+    # 端口
+    ports:
+      - "80:80"
+      - "443:443"
+
+    # 环境变量
+    environment:
+      - TZ=Asia/Shanghai
+
+    # 数据卷
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - nginx_cache:/var/cache/nginx
+      - nginx_logs:/var/log/nginx
+
+    # 网络
+    networks:
+      - optimizer_network
+      - monitoring_network
+
+    # 依赖
+    depends_on:
+      - app
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 64M
+          cpus: '0.05'
+
+    # 默认不启动（注释掉profiles以启用）
+    profiles:
+      - proxy
+
+# ========================================
+# 网络定义
+# ========================================
+networks:
+  # 主应用网络
+  optimizer_network:
+    driver: bridge
+    name: eulermaker_optimizer_net
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+
+  # 监控网络
+  monitoring_network:
+    driver: bridge
+    name: eulermaker_monitoring_net
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.21.0.0/16
+          gateway: 172.21.0.1
+
+# ========================================
+# 数据卷定义
+# ========================================
+volumes:
+  # 应用数据卷
+  app_logs:
+    driver: local
+    name: eulermaker_optimizer_logs
+
+  app_data:
+    driver: local
+    name: eulermaker_optimizer_data
+
+  app_builds:
+    driver: local
+    name: eulermaker_optimizer_builds
+
+  app_uploads:
+    driver: local
+    name: eulermaker_optimizer_uploads
+
+  app_cache:
+    driver: local
+    name: eulermaker_optimizer_cache
+
+  # Redis数据卷
+  redis_data:
+    driver: local
+    name: eulermaker_optimizer_redis
+
+  # PostgreSQL数据卷
+  postgres_data:
+    driver: local
+    name: eulermaker_optimizer_postgres
+
+  # 监控数据卷
+  prometheus_data:
+    driver: local
+    name: eulermaker_optimizer_prometheus
+
+  grafana_data:
+    driver: local
+    name: eulermaker_optimizer_grafana
+
+  # Nginx数据卷
+  nginx_cache:
+    driver: local
+    name: eulermaker_optimizer_nginx_cache
+
+  nginx_logs:
+    driver: local
+    name: eulermaker_optimizer_nginx_logs
+
+# ========================================
+# 配置和秘钥（Docker Compose secrets）
+# ========================================
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+
+  grafana_password:
+    file: ./secrets/grafana_password.txt
+
+  app_secret_key:
+    file: ./secrets/app_secret_key.txt
+
+# ========================================
+# 使用说明和命令示例
+# ========================================
+#
+# 基本操作：
+#   docker-compose up -d                    # 启动基础服务（app + redis）
+#   docker-compose --profile monitoring up -d  # 启动包含监控的完整栈
+#   docker-compose --profile database up -d    # 启动包含数据库的服务
+#   docker-compose logs -f app              # 查看应用日志
+#   docker-compose exec app bash            # 进入应用容器
+#   docker-compose down                     # 停止所有服务
+#   docker-compose down -v                  # 停止服务并删除数据卷
+#
+# 管理操作：
+#   docker-compose pull                     # 拉取最新镜像
+#   docker-compose build --no-cache         # 重新构建镜像
+#   docker-compose restart app              # 重启应用服务
+#   docker-compose scale app=3              # 扩容应用服务到3个实例
+#
+# 监控和调试：
+#   docker-compose top                      # 查看容器进程
+#   docker-compose stats                    # 查看资源使用情况
+#   docker-compose config                   # 验证配置文件
+#
+# 数据备份：
+#   docker-compose exec postgres pg_dump -U optimizer optimizer > backup.sql
+#   docker-compose exec redis redis-cli BGSAVE
+#
+# 环境变量文件示例（.env文件）：
+#   VERSION=1.0.0
+#   SECRET_KEY=your-super-secret-key-here
+#   POSTGRES_PASSWORD=your-postgres-password
+#   GRAFANA_PASSWORD=your-grafana-password
+#   BUILD_DATE=2025-08-01T00:00:00Z
+#   VCS_REF=abc1234
