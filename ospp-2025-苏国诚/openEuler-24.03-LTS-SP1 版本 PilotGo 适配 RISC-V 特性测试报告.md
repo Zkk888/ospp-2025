@@ -1,4 +1,4 @@
-![avatar](./openEuler.png)
+![avatar](./figures/openEuler.png)
 
 版权所有 © 2025 openEuler社区 您对“本文档”的复制、使用、修改及分发受知识共享(Creative Commons)署名—相同方式共享4.0国际公共许可协议(以下简称“CC BY-SA 4.0”)的约束。为了方便用户理解，您可以通过访问[https://creativecommons.org/licenses/by-sa/4.0/](https://gitee.com/link?target=https%3A%2F%2Fcreativecommons.org%2Flicenses%2Fby-sa%2F4.0%2F) 了解CC BY-SA 4.0的概要 (但不是替代)。CC BY-SA 4.0的完整协议内容您可以访问如下网址获取：[https://creativecommons.org/licenses/by-sa/4.0/legalcode。](https://gitee.com/link?target=https%3A%2F%2Fcreativecommons.org%2Flicenses%2Fby-sa%2F4.0%2Flegalcode%E3%80%82)
 
@@ -106,9 +106,9 @@ PilotGo 在 openEuler-24.03-LTS-SP1-riscv64 版本的测试阶段，主要涵盖
 | 7*24 长稳测试 | 稳定运行时间                | 平台在 7*24 不间断运行未出现崩溃、故障等问题                 |
 | 操作响应测试  | 操作响应速度                | 基本功能应做到即时响应 单个软件包的安装和卸载速度取决于软件包的大小及网络速度 对于批量操作任务，任务提交应立即得到响应 批次执行的完成时间与批次的大小和每个任务的执行时间相关 |
 
-![测试输出结果](./测试输出结果.png)
+![测试输出结果](./figures/测试输出结果.png)
 
-![server 机器列表](./server 机器列表.png)
+![server 机器列表](./figures/server 机器列表.png)
 
 ### 4.3.2 安全测试结论
 
