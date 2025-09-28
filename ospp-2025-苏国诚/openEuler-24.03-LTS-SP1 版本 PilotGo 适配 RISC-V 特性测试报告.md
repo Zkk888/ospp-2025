@@ -42,6 +42,12 @@ PilotGo 特性在 openEuler-24.03-LTS-SP1-riscv64 上验证。
 
 PilotGo 在 openEuler-24.03-LTS-SP1-riscv64 版本的测试阶段，主要涵盖了功能测试、安全性测试和可靠性测试。通过7*24小时的长时间稳定性测试，顺利完成了 16 个子模块的测试。整体核心功能表现稳定，插件功能运行正常。但 PilotGo-plugin-topology 插件因使用的 neo4j 图数据库不支持 riscv64 架构，暂时无法使用。
 
+![](/home/pluto/work/ospp-2025/ospp-2025-苏国诚/figures/运行结果1.png)
+
+![](/home/pluto/work/ospp-2025/ospp-2025-苏国诚/figures/运行结果2.png)
+
+![](/home/pluto/work/ospp-2025/ospp-2025-苏国诚/figures/运行结果3.png)
+
 ## 3.2 约束说明
 
 特性使用时涉及到的约束及限制条件
@@ -108,7 +114,7 @@ PilotGo 在 openEuler-24.03-LTS-SP1-riscv64 版本的测试阶段，主要涵盖
 
 ![测试输出结果](./figures/测试输出结果.png)
 
-![server 机器列表](./figures/server 机器列表.png)
+![server 机器列表](./figures/server机器列表.png)
 
 ### 4.3.2 安全测试结论
 
